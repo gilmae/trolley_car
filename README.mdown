@@ -9,24 +9,6 @@ Intention is to follow a fairly simple process:
 4. File is added to the cataloging queue
 5. File is cataloged and updated as complete via the Orchestrator
 
-sequenceDiagram
-    participant User
-    participant NewFiles
-    participant Orchestrator
-    participant Transcoder
-    participant Cataloguer
-    participant MediaLibrary
-    participant NotificationSystem
-    User->>NewFiles: 0. Add files
-    NewFiles->>Orchestrator: 1. Register New Job
-    Orchestrator->>Transcoder: 2. Send job for transcoding
-    Transcoder-->>Orchestrator: 3. Transcode Complete
-    Orchestrator->>Cataloguer: 4. Send Job for Cataloguing
-    Cataloguer->>MediaLibrary: 5. Sends file to Media Library
-    Cataloguer-->>Orchestrator: 6. Catalogue Complete
-    Orchestrator->>NotificationSystem: 7. Notify User
-    NotificationSystem-->>User: Media ready
-
 ## Orchestrator
 Orchestrator will be a web api with the following interface:
 
