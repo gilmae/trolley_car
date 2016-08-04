@@ -6,8 +6,8 @@ import (
         "log"
         "time"
         "encoding/json"
-        //"os"
-        //"os/exec"
+        "os"
+        "os/exec"
         "strings"
         "net/http"
         "bytes"
@@ -72,7 +72,7 @@ func main() {
 
                         path := job["path"].(string)
                         new_path := strings.Join([]string{path, ".mp4"}, "")
-                        /*cmd:= "/Applications/HandBrakeCLI"
+                        cmd:= "/Applications/HandBrakeCLI"
                         args := []string{"-i", path, "-o", new_path, "-Z", "AppleTV 2"}
 
                         if err := exec.Command(cmd, args...).Run(); err != nil {
@@ -81,7 +81,6 @@ func main() {
 	                      }
 
                         log.Printf("Successfully converted %s", m["path"])
-                        */
 
                         job["path"] = new_path
                         j, err := json.Marshal(job)
