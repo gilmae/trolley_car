@@ -8,10 +8,18 @@ import (
         "encoding/json"
         "os"
         "os/exec"
+        "os/user"
         "strings"
         "net/http"
         "bytes"
+        "github.com/BurntSushi/toml"
 )
+
+type Config struct {
+  AMQPConnectionString string
+  Queue string
+  OrchestratorURI string
+}
 
 func failOnError(err error, msg string) {
         if err != nil {
@@ -21,7 +29,14 @@ func failOnError(err error, msg string) {
 }
 
 func main() {
-        conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+       usr, _ := user.Current()
+       dir := usr.HomeDir
+       var conf Config
+        _, err := toml.DecodeFile(strings.Join([]string{dir, ".trolley", "config.toml"},"/"), &conf)
+        failOnError(err, "Failed to read in config file")
+
+        // Shamless copy paste of the worker.go code from RabbitMQ's tutorial on Queues
+        conn, err := amqp.Dial(conf.AMQPConnectionString)
         failOnError(err, "Failed to connect to RabbitMQ")
         defer conn.Close()
 
@@ -30,7 +45,7 @@ func main() {
         defer ch.Close()
 
         q, err := ch.QueueDeclare(
-                "transcodes", // name
+                conf.Queue, // name
                 true,         // durable
                 false,        // delete when unused
                 false,        // exclusive
@@ -70,6 +85,7 @@ func main() {
                         job:= job_as_interface.(map[string]interface{})
                         log.Printf("Converting %s", job["path"])
 
+                        // TODO Configurable Handbrake settings
                         path := job["path"].(string)
                         new_path := strings.Join([]string{path, ".mp4"}, "")
                         cmd:= "/Applications/HandBrakeCLI"
@@ -80,14 +96,14 @@ func main() {
 		                        os.Exit(1)
 	                      }
 
-                        log.Printf("Successfully converted %s", m["path"])
+                        log.Printf("Successfully converted %s", path)
 
                         job["path"] = new_path
                         j, err := json.Marshal(job)
                         failOnError(err, "Failed to marshal JSON body")
 
                         // Tell the Orchestrator the transcode is complete
-                        url := "http://localhost:3001/transcodingComplete"
+                        url := strings.Join([]string{conf.OrchestratorURI, "/transcodingComplete"}, "")
 
                         var jsonStr = []byte(j)
                         req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
