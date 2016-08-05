@@ -88,8 +88,8 @@ func main() {
                         // TODO Configurable Handbrake settings
                         path := job["path"].(string)
                         new_path := strings.Join([]string{path, ".mp4"}, "")
-                        cmd:= "/Applications/HandBrakeCLI"
-                        args := []string{"-i", path, "-o", new_path, "-Z", "AppleTV 2"}
+                        cmd:= "ffmpeg"
+                        args := []string{"-i", path, "-vcodec" "libx264" "-r" "24", new_path}
 
                         if err := exec.Command(cmd, args...).Run(); err != nil {
 		                        fmt.Fprintln(os.Stderr, err)
