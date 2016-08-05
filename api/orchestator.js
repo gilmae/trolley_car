@@ -39,6 +39,23 @@ app.post("/registerJob",function(req,res){
     db.run("INSERT INTO jobs (job_id, created_at, updated_at, path, status) VALUES (?,?,?,?, 'new')", [job.job_id, job.created_at, job.updated_at, job.path]);
   })
 
+  trolley_exchange.publish("jobs::catalogue", job);
+
+  var response = job;
+  res.end(JSON.stringify(response));
+});
+
+app.post("/cataloguingComplete", function(req,res){
+  console.log("Received message to /cataloguingComplete");
+  console.log(req.body);
+
+  var job = req.body;
+  job.updated_at = new Date;
+
+  db.serialize(function(){
+    db.run("UPDATE jobs set updated_at = ?, status='catalogued', path=? where job_id=? and status='transcoded'", [job.updated_at, job.path, job.job_id])
+  });
+
   trolley_exchange.publish("jobs::transcode", job);
 
   var response = job;
@@ -56,25 +73,28 @@ app.post("/transcodingComplete", function(req,res){
     db.run("UPDATE jobs set updated_at = ?, status='transcoded', path=? where job_id=? and status='new'", [job.updated_at, job.path, job.job_id])
   });
 
-  trolley_exchange.publish("jobs::catalogue", job);
+  trolley_exchange.publish("jobs::shelve", job);
 
   var response = job;
   res.end(JSON.stringify(response));
 });
 
-app.post("/cataloguingComplete", function(req,res){
-  console.log("Received message to /cataloguingComplete");
+app.post("/shelvingComplete", function(req,res){
+  console.log("Received message to /transcodingComplete");
   console.log(req.body);
 
   var job = req.body;
   job.updated_at = new Date;
 
   db.serialize(function(){
-    db.run("UPDATE jobs set updated_at = ?, status='catalogued', path=? where job_id=? and status='transcoded'", [job.updated_at, job.path, job.job_id])
+    db.run("UPDATE jobs set updated_at = ?, metadata=?, status='shelved', path=? where job_id=? and status='new'", [job.updated_at, job.metadata, job.path, job.job_id])
   });
+
   var response = job;
   res.end(JSON.stringify(response));
 });
+
+
 
 console.log("Listening on port 3001")
 app.listen(3001);

@@ -2,16 +2,19 @@ sequenceDiagram
     participant User
     participant NewFiles
     participant Orchestrator
-    participant Transcoder
     participant Cataloguer
+    participant Transcoder
+    participant Shelver
     participant MediaLibrary
     participant NotificationSystem
     User->>NewFiles: 0. Add files
     NewFiles->>Orchestrator: 1. Register New Job
-    Orchestrator->>Transcoder: 2. Send job for transcoding
-    Transcoder-->>Orchestrator: 3. Transcode Complete
-    Orchestrator->>Cataloguer: 4. Send Job for Cataloguing
-    Cataloguer->>MediaLibrary: 5. Sends file to Media Library
+    Orchestrator->>Cataloguer: 2. Send Job for Cataloguing
     Cataloguer-->>Orchestrator: 6. Catalogue Complete
-    Orchestrator->>NotificationSystem: 7. Notify User
+    Orchestrator->>Transcoder: 3. Send job for transcoding
+    Transcoder-->>Orchestrator: 4. Transcode Complete
+    Orchestrator->>Shelver: 5. Send Job for Shelving
+    Shelver->>MediaLibrary: 6. Sends file to Media Library
+    Shelver-->>Orchestrator: 7. Shelve Complete
+    Orchestrator->>NotificationSystem: 8. Notify User
     NotificationSystem-->>User: Media ready
