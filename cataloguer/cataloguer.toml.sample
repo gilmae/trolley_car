@@ -1,0 +1,6 @@
+# Transcoder Config
+# Edit and rename to config.toml
+AMQPConnectionString = "amqp://guest:guest@localhost:5672/"
+Queue = "cataloguing"
+OrchestratorURI = "http://localhost:3001"
+CatalogueRoot = "~/media"

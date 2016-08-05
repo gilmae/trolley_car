@@ -20,7 +20,7 @@ var sqlite3 = require('sqlite3').verbose();
 var db = new sqlite3.Database('trolley.db');
 
 db.serialize(function(){
-  db.run("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, job_id VARCHAR(50), path VARCHAR(256), created_at DATETIME, updated_at DATETIME, status varchar(32));")
+  db.run("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, job_id VARCHAR(50), path VARCHAR(256), created_at DATETIME, updated_at DATETIME, status varchar(32), metadata text);")
 });
 
 console.log("API Starting");
@@ -58,6 +58,20 @@ app.post("/transcodingComplete", function(req,res){
 
   trolley_exchange.publish("jobs::catalogue", job);
 
+  var response = job;
+  res.end(JSON.stringify(response));
+});
+
+app.post("/cataloguingComplete", function(req,res){
+  console.log("Received message to /cataloguingComplete");
+  console.log(req.body);
+
+  var job = req.body;
+  job.updated_at = new Date;
+
+  db.serialize(function(){
+    db.run("UPDATE jobs set updated_at = ?, status='catalogued', path=? where job_id=? and status='transcoded'", [job.updated_at, job.path, job.job_id])
+  });
   var response = job;
   res.end(JSON.stringify(response));
 });
