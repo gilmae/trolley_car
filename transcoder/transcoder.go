@@ -85,11 +85,32 @@ func main() {
                         job:= job_as_interface.(map[string]interface{})
                         log.Printf("Converting %s", job["path"])
 
+                        var metadata_as_interface interface{}
+                        err = json.Unmarshal([]byte(job["metadata"].(string)), &metadata_as_interface)
+                        metadata := metadata_as_interface.(map[string]interface{})
+
+                        log.Printf("%s", metadata["Title"])
+
                         // TODO Configurable Handbrake settings
                         path := job["path"].(string)
                         new_path := strings.Join([]string{path, ".mp4"}, "")
                         cmd:= "ffmpeg"
-                        args := []string{"-i", path, "-vcodec" "libx264" "-r" "24", new_path}
+                        args := []string{"-i", path, "-vcodec", "libx264", "-r", "24"}
+
+                        if val, ok := metadata["Title"]; ok {
+                          args = append(args, "-metadata")
+                          args = append(args, fmt.Sprintf(`title="%s"`, val))
+                          args = append(args, "-metadata")
+                          args = append(args, fmt.Sprintf(`sort_name="%s"`, val))
+                        }
+
+                        if job["show"].(string) != "" {
+                          args = append(args, "-metadata")
+                          args = append(args, fmt.Sprintf(`show="%s"`, job["show"]))
+                        }
+
+                        args = append(args, new_path)
+                        log.Printf("Calling %s %s\n", cmd, args)
 
                         if err := exec.Command(cmd, args...).Run(); err != nil {
 		                        fmt.Fprintln(os.Stderr, err)
@@ -114,7 +135,6 @@ func main() {
                         failOnError(err, "Failed to update job as transcodeComplete in Orchestrator")
 
                         defer resp.Body.Close()
-
 
                         d.Ack(false)
                         t := time.Duration(10)
