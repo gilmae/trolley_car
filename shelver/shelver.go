@@ -10,6 +10,7 @@ import (
         "time"
         "encoding/json"
         "os"
+        "os/exec"
         "os/user"
         "net/http"
         "bytes"
@@ -103,6 +104,29 @@ func main() {
                   os.MkdirAll(shelve_at_path, 0700)
                   new_path := strings.Join([]string{shelve_at_path, filename}, "/")
                   os.Rename(path, new_path)
+
+                  cmd := "/usr/bin/osascript"
+                  args := []string{"-e", "tell application \"iTunes\"", "-e", "launch", "-e", fmt.Sprintf("set new_file to add POSIX file \"%s\" to playlist \"Library\"", new_path), "-e", "set video kind of new_file to TV show"}
+
+                  if val, ok := job["season"]; ok {
+                    args = append(args, "-e")
+                    args = append(args, fmt.Sprintf("set season number of new_file to %s", val))
+                  }
+
+                  if val, ok := job["episode"]; ok {
+                    args = append(args, "-e")
+                    args = append(args, fmt.Sprintf("set episode number of new_file to %s", val))
+                  }
+
+                  args = append(args, "-e")
+                  args = append(args, "end tell")
+
+                  log.Printf("Calling %s %s\n", cmd, args)
+
+                  c := exec.Command(cmd, args...)
+                  output, err := c.CombinedOutput()
+                  log.Printf("%s\n", output)
+                  failOnError(err, "Failed to add to iTunes")
 
                   job["path"] = new_path
                   j, err := json.Marshal(job)

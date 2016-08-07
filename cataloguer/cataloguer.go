@@ -104,11 +104,11 @@ func main() {
 
        if (re.MatchString(filename)) {
          submatch := re.FindStringSubmatch(filename)
-         showname := submatch[1]
-         season := submatch[2]
-         episode := submatch[3]
+         job["show"] = submatch[1]
+         job["season"] = submatch[2]
+         job["episode"] = submatch[3]
 
-         query := fmt.Sprintf("http://www.omdbapi.com/?t=%s&Season=%s&Episode=%s", showname, season, episode)
+         query := fmt.Sprintf("http://www.omdbapi.com/?t=%s&Season=%s&Episode=%s", job["show"], job["season"], job["episode"])
 
          r, err := http.Get(query)
          failOnError(err, "Could not retrieve data from OMDB")
@@ -117,7 +117,7 @@ func main() {
          body, err := ioutil.ReadAll(r.Body)
          failOnError(err, "Failed to retrieve OMDB details")
 
-         job["metadata"] = body
+         job["metadata"] = fmt.Sprintf("%s", body)
 
          j, err := json.Marshal(job)
          failOnError(err, "Failed to marshal JSON body")
