@@ -5,7 +5,13 @@ var uuid       = require('node-uuid');
 var amqp       = require('amqp');
 
 var app = express();
-app.use(bodyParser.json())
+app.use(bodyParser.json());
+
+if (typeof String.prototype.endsWith !== 'function') {
+    String.prototype.endsWith = function(suffix) {
+        return this.indexOf(suffix, this.length - suffix.length) !== -1;
+    };
+}
 
 var rabbitConn = amqp.createConnection();
 var trolley_exchange;
@@ -53,10 +59,32 @@ app.post("/cataloguingComplete", function(req,res){
   job.updated_at = new Date;
 
   db.serialize(function(){
-    db.run("UPDATE jobs set updated_at = ?, status='catalogued', path=?, episode=?, season=?, title=?, show=?, metadata=? where job_id=? and status='transcoded'", [job.updated_at, job.path, job.episode, job.season, job.title, job.show, job.metadata, job.job_id])
+    db.run("UPDATE jobs set updated_at = ?, status='catalogued', path=?, episode=?, season=?, title=?, show=?, metadata=? where job_id=?", [job.updated_at, job.path, job.episode, job.season, job.title, job.show, job.metadata, job.job_id])
   });
 
-  trolley_exchange.publish("jobs::transcode", job);
+  if (job.path.toString().endsWith(".mp4")) {
+     trolley_exchange.publish("jobs::shelve", job);
+  }
+  else {
+    trolley_exchange.publish("jobs::transcode", job);
+  }
+
+  var response = job;
+  res.end(JSON.stringify(response));
+});
+
+app.post("/couldNotCatalogue", function(req,res){
+  console.log("Received message to /couldNotCatalogue");
+  console.log(req.body);
+
+  var job = req.body;
+  job.updated_at = new Date;
+
+  db.serialize(function(){
+    db.run("UPDATE jobs set updated_at = ?, status='couldNotCatalogue', path=?, episode=?, season=?, title=?, show=?, metadata=? where job_id=?", [job.updated_at, job.path, job.episode, job.season, job.title, job.show, job.metadata, job.job_id])
+  });
+
+  trolley_exchange.publish("jobs::uncatalouged", job);
 
   var response = job;
   res.end(JSON.stringify(response));
@@ -70,7 +98,7 @@ app.post("/transcodingComplete", function(req,res){
   job.updated_at = new Date;
 
   db.serialize(function(){
-    db.run("UPDATE jobs set updated_at = ?, status='transcoded', path=? where job_id=? and status='catalogued'", [job.updated_at, job.path, job.job_id])
+    db.run("UPDATE jobs set updated_at = ?, status='transcoded', path=? where job_id=?", [job.updated_at, job.path, job.job_id])
   });
 
   trolley_exchange.publish("jobs::shelve", job);
@@ -87,7 +115,7 @@ app.post("/shelvingComplete", function(req,res){
   job.updated_at = new Date;
 
   db.serialize(function(){
-    db.run("UPDATE jobs set updated_at = ?, status='shelved', path=? where job_id=? and status='transcode'", [job.updated_at, job.path, job.job_id])
+    db.run("UPDATE jobs set updated_at = ?, status='shelved', path=? where job_id=?", [job.updated_at, job.path, job.job_id])
   });
 
   var response = job;

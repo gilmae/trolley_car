@@ -2,14 +2,11 @@ package main
 
 import (
         "fmt"
-        "path/filepath"
-        "regexp"
         "strings"
         "github.com/streadway/amqp"
         "log"
         "time"
         "encoding/json"
-        "os"
         "os/exec"
         "os/user"
         "net/http"
@@ -90,33 +87,44 @@ func main() {
 
                   // TODO Configurable Handbrake settings
                   path := job["path"].(string)
-                  filename := filepath.Base(path)
-
-                  re := regexp.MustCompile(`([\w\d\s\.]+)[\.\s]([Ss]\d{1,2})([eE]\d{1,2}).+\.(\w{3})`)
-                  shelve_at_path := conf.MediaLibrary
-
-                  if (re.MatchString(filename)) {
-                     submatch := re.FindStringSubmatch(filename)
-                     filename = fmt.Sprintf("%s_%s%s.%s", submatch[1], submatch[2], submatch[3], submatch[4])
-                     shelve_at_path = fmt.Sprintf("%s/%s/%s", shelve_at_path, submatch[1], submatch[2])
-                  }
-
-                  os.MkdirAll(shelve_at_path, 0700)
-                  new_path := strings.Join([]string{shelve_at_path, filename}, "/")
-                  os.Rename(path, new_path)
 
                   cmd := "/usr/bin/osascript"
-                  args := []string{"-e", "tell application \"iTunes\"", "-e", "launch", "-e", fmt.Sprintf("set new_file to add POSIX file \"%s\" to playlist \"Library\"", new_path), "-e", "set video kind of new_file to TV show"}
+                  args := []string{"-e", "tell application \"iTunes\"", "-e", "launch", "-e", fmt.Sprintf("set new_file to add POSIX file \"%s\" to playlist \"Library\"", path), "-e", "set video kind of new_file to TV show"}
 
                   if val, ok := job["season"]; ok {
                     args = append(args, "-e")
                     args = append(args, fmt.Sprintf("set season number of new_file to %s", val))
                   }
 
+                  if val, ok := job["show"]; ok {
+                    args = append(args, "-e")
+                    args = append(args, fmt.Sprintf("set show of new_file to \"%s\"", val))
+                  }
+
                   if val, ok := job["episode"]; ok {
                     args = append(args, "-e")
                     args = append(args, fmt.Sprintf("set episode number of new_file to %s", val))
                   }
+
+                  if val, ok := job["metadata"]; ok {
+                    var metadata_as_interface interface{}
+                    err = json.Unmarshal([]byte(val.(string)), &metadata_as_interface)
+
+                    if err == nil {
+
+                      metadata := metadata_as_interface.(map[string]interface{})
+
+                      if val, ok := metadata["Plot"]; ok {
+                        args = append(args, "-e")
+                        args = append(args, fmt.Sprintf("set description of new_file to \"%s\"", val))
+                      }
+
+                      if val, ok := metadata["Title"]; ok {
+                        args = append(args, "-e")
+                        args = append(args, fmt.Sprintf("set name of new_file to \"%s\"", val))
+                      }
+                    }
+                }
 
                   args = append(args, "-e")
                   args = append(args, "end tell")
@@ -128,7 +136,6 @@ func main() {
                   log.Printf("%s\n", output)
                   failOnError(err, "Failed to add to iTunes")
 
-                  job["path"] = new_path
                   j, err := json.Marshal(job)
                   failOnError(err, "Failed to marshal JSON body")
 
@@ -147,7 +154,7 @@ func main() {
 
 
                   d.Ack(false)
-                  t := time.Duration(10)
+                  t := time.Duration(1)
                   time.Sleep(t * time.Second)
                   log.Printf("Done")
           }

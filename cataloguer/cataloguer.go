@@ -10,7 +10,7 @@ import (
         "log"
         "time"
         "encoding/json"
-        //"os"
+        "net/url"
         "os/user"
         "net/http"
         "bytes"
@@ -38,6 +38,33 @@ func getJson(url string, target interface{}) error {
     defer r.Body.Close()
 
     return json.NewDecoder(r.Body).Decode(target)
+}
+
+func updateOrchestrator(url string, job interface{}) error {
+  j, err := json.Marshal(job)
+  failOnError(err, "Failed to marshal JSON body")
+
+  // Tell the Orchestrator the cataloguing is complete
+
+
+  var jsonStr = []byte(j)
+  req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
+  req.Header.Set("Content-Type", "application/json")
+
+  client := &http.Client{}
+  resp, err := client.Do(req)
+
+  defer resp.Body.Close()
+
+  return err
+}
+
+func UrlEncoded(str string) (string, error) {
+    u, err := url.Parse(str)
+    if err != nil {
+        return "", err
+    }
+    return u.String(), nil
 }
 
 func main() {
@@ -100,15 +127,16 @@ func main() {
        path := job["path"].(string)
        filename := filepath.Base(path)
 
-       re := regexp.MustCompile(`([\w\d\s\.]+)[\.\s][Ss](\d{1,2})[eE](\d{1,2}).+\.(\w{3})`)
+       re := regexp.MustCompile(`([\w\d\s\.]+)[\-_\.\s]+[Ss]?(\d{1,2})[eEx]?(\d{2}).*\.(\w{3})`)
 
        if (re.MatchString(filename)) {
          submatch := re.FindStringSubmatch(filename)
-         job["show"] = submatch[1]
+         job["show"] = strings.Trim(submatch[1], " -._")
          job["season"] = submatch[2]
          job["episode"] = submatch[3]
 
-         query := fmt.Sprintf("http://www.omdbapi.com/?t=%s&Season=%s&Episode=%s", job["show"], job["season"], job["episode"])
+         query := fmt.Sprintf("http://www.omdbapi.com/?t=%s&Season=%s&Episode=%s", strings.Replace(job["show"], " ", "%20", -1), job["season"], job["episode"])
+         fmt.Printf("%s", query)
 
          r, err := http.Get(query)
          failOnError(err, "Could not retrieve data from OMDB")
@@ -119,29 +147,21 @@ func main() {
 
          job["metadata"] = fmt.Sprintf("%s", body)
 
-         j, err := json.Marshal(job)
-         failOnError(err, "Failed to marshal JSON body")
+         err = updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/cataloguingComplete"}, ""), job)
+         failOnError(err, "Failed to update cataloguingComplete")
+      } else {
+        err = updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/couldNotCatalogue"}, ""), job)
+        failOnError(err, "Failed to update couldNotCatalogue")
+      }
 
-         // Tell the Orchestrator the cataloguing is complete
-         url := strings.Join([]string{conf.OrchestratorURI, "/cataloguingComplete"}, "")
+      d.Ack(false)
+      t := time.Duration(1)
+      time.Sleep(t * time.Second)
+      log.Printf("Done")
 
-         var jsonStr = []byte(j)
-         req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
-         req.Header.Set("Content-Type", "application/json")
+    }
+  }()
 
-         client := &http.Client{}
-         resp, err := client.Do(req)
-         failOnError(err, "Failed to update job as cataloguingComplete in Orchestrator")
-
-         defer resp.Body.Close()
-
-         d.Ack(false)
-         t := time.Duration(10)
-         time.Sleep(t * time.Second)
-         log.Printf("Done")
-       }
-     }
-   }()
-   log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
-   <-forever
+  log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
+  <-forever
 }

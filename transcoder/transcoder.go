@@ -84,25 +84,11 @@ func main() {
 
                         job:= job_as_interface.(map[string]interface{})
                         log.Printf("Converting %s", job["path"])
-
-                        var metadata_as_interface interface{}
-                        err = json.Unmarshal([]byte(job["metadata"].(string)), &metadata_as_interface)
-                        metadata := metadata_as_interface.(map[string]interface{})
-
-                        log.Printf("%s", metadata["Title"])
-
                         // TODO Configurable Handbrake settings
                         path := job["path"].(string)
                         new_path := strings.Join([]string{path, ".mp4"}, "")
                         cmd:= "ffmpeg"
                         args := []string{"-i", path, "-vcodec", "libx264", "-r", "24"}
-
-                        if val, ok := metadata["Title"]; ok {
-                          args = append(args, "-metadata")
-                          args = append(args, fmt.Sprintf(`title="%s"`, val))
-                          args = append(args, "-metadata")
-                          args = append(args, fmt.Sprintf(`sort_name="%s"`, val))
-                        }
 
                         if job["show"].(string) != "" {
                           args = append(args, "-metadata")
@@ -137,7 +123,7 @@ func main() {
                         defer resp.Body.Close()
 
                         d.Ack(false)
-                        t := time.Duration(10)
+                        t := time.Duration(3)
                         time.Sleep(t * time.Second)
                         log.Printf("Done")
                 }
