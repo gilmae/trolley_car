@@ -9,6 +9,11 @@ Intention is to follow a fairly simple process:
 4. File is added to the cataloging queue
 5. File is cataloged and updated as complete via the Orchestrator
 
+## Requirements
+node v0.10.32+
+RabbitMQ v3.6.1
+Go v1.6.2
+
 ## Orchestrator
 Orchestrator will be a web api with the following interface:
 
