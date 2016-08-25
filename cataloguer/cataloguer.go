@@ -55,6 +55,9 @@ func main() {
            nil,    // args
    )
    failOnError(err, "Failed to register a consumer")
+   go func() {
+   		fmt.Printf("closing: %s", <-conn.NotifyClose(make(chan *amqp.Error)))
+   	}()
 
    forever := make(chan bool)
 
