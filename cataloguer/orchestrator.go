@@ -6,7 +6,7 @@ import (
   "net/http"
 )
 
-func updateOrchestrator(url string, job interface{}) error {
+func updateOrchestrator(url string, job Job) error {
   j, err := json.Marshal(job)
   failOnError(err, "Failed to marshal JSON body")
 

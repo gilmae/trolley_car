@@ -18,7 +18,13 @@ var trolley_exchange;
 
 rabbitConn.on('ready', function () {
    console.log("MQ is connected");
-   trolley_exchange = rabbitConn.exchange('trolley', {'type': 'topic'});
+   trolley_exchange = rabbitConn.exchange('trolley', {'type': 'topic', 'durable': true});
+
+   // These commands create the queues and bind them to the exchange with those routing keys.
+   // But then trigger the 'ready' event again? Because I see it keep logging 'MQ is connected'. Why?
+   //rabbitConn.queue('transcodes').bind('trolley', 'jobs::transcode');
+   //rabbitConn.queue('shelving').bind('trolley', 'jobs::shelve');
+   //rabbitConn.queue('cataloguing').bind('trolley', 'jobs::catalogue');
 });
 
 
@@ -26,7 +32,7 @@ var sqlite3 = require('sqlite3').verbose();
 var db = new sqlite3.Database('trolley.db');
 
 db.serialize(function(){
-  db.run("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, job_id VARCHAR(50), path VARCHAR(256), created_at DATETIME, updated_at DATETIME, status varchar(32), metadata text, title varchar(255), show varchar(100), episode varchar(2), season varchar(2));")
+  db.run("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, job_id VARCHAR(50), path VARCHAR(256), created_at DATETIME, updated_at DATETIME, status varchar(32), metadata text, title varchar(255), show varchar(100), episode varchar(2), season varchar(2), type varchar(50));")
 });
 
 console.log("API Starting");
@@ -51,6 +57,7 @@ app.post("/registerJob",function(req,res){
   res.end(JSON.stringify(response));
 });
 
+console.log("Set up /cataloguingComplete");
 app.post("/cataloguingComplete", function(req,res){
   console.log("Received message to /cataloguingComplete");
   console.log(req.body);
@@ -59,7 +66,7 @@ app.post("/cataloguingComplete", function(req,res){
   job.updated_at = new Date;
 
   db.serialize(function(){
-    db.run("UPDATE jobs set updated_at = ?, status='catalogued', path=?, episode=?, season=?, title=?, show=?, metadata=? where job_id=?", [job.updated_at, job.path, job.episode, job.season, job.title, job.show, job.metadata, job.job_id])
+    db.run("UPDATE jobs set updated_at = ?, status='catalogued', path=?, episode=?, season=?, title=?, show=?, metadata=?, type=? where job_id=?", [job.updated_at, job.path, job.episode, job.season, job.title, job.show, job.metadata, job.type, job.job_id])
   });
 
   if (job.path.toString().endsWith(".mp4")) {
@@ -73,6 +80,7 @@ app.post("/cataloguingComplete", function(req,res){
   res.end(JSON.stringify(response));
 });
 
+console.log("Set up /couldNotCatalogue");
 app.post("/couldNotCatalogue", function(req,res){
   console.log("Received message to /couldNotCatalogue");
   console.log(req.body);
@@ -90,6 +98,7 @@ app.post("/couldNotCatalogue", function(req,res){
   res.end(JSON.stringify(response));
 });
 
+console.log("Set up /transcodingComplete");
 app.post("/transcodingComplete", function(req,res){
   console.log("Received message to /transcodingComplete");
   console.log(req.body);
@@ -107,6 +116,7 @@ app.post("/transcodingComplete", function(req,res){
   res.end(JSON.stringify(response));
 });
 
+console.log("Set up /shelvingComplete");
 app.post("/shelvingComplete", function(req,res){
   console.log("Received message to /shelvingComplete");
   console.log(req.body);
