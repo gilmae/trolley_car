@@ -13,17 +13,18 @@ import (
 )
 
 type Job struct {
-  path string
-  show string
-  season string
-  episode string
-  metadata string
-  job_id string
-  id int
-  created_at time.Time
-  updated_at time.Time
-  status string
-  title string
+  Path string `json:"path"`
+  Show string `json:"show"`
+  Season string `json:"season"`
+  Episode string `json:"episode"`
+  Metadata string `json:"metadata"`
+  Job_id string `json:"job_id"`
+  Id int `json:"id"`
+  Created_at time.Time `json:"created_at"`
+  Updated_at time.Time `json:"updated_at"`
+  Status string `json:"status"`
+  Title string `json:"title"`
+  Type string `json:type`
 }
 
 func ParseMessageAsJob(msg []byte) Job {
@@ -37,20 +38,22 @@ func ParseMessageAsJob(msg []byte) Job {
 }
 
 func Catalog(job Job, conf Config) {
-  log.Printf("Cataloguing %s", job.path)
+  log.Printf("Cataloguing %s", job.Path)
 
-  path := job.path
+  path := job.Path
   filename := filepath.Base(path)
 
   re := regexp.MustCompile(`([\w\d\s\.]+)[\-_\.\s]+[Ss]?(\d{1,2})[eEx](\d{2}).*\.(\w{3})`)
 
   if (re.MatchString(filename)) {
     submatch := re.FindStringSubmatch(filename)
-    job.show = strings.Trim(submatch[1], " -._")
-    job.season = submatch[2]
-    job.episode = submatch[3]
+    job.Show = strings.Trim(submatch[1], " -._")
+    job.Show = strings.Replace(job.Show, ".", " ", -1)
+    job.Season = submatch[2]
+    job.Episode = submatch[3]
+    job.Type = "TV show"
 
-    query := fmt.Sprintf("http://www.omdbapi.com/?t=%s&Season=%s&Episode=%s", strings.Replace(job.show, " ", "%20", -1), job.season, job.episode)
+    query := fmt.Sprintf("http://www.omdbapi.com/?t=%s&Season=%s&Episode=%s", strings.Replace(job.Show, " ", "%20", -1), job.Season, job.Episode)
     fmt.Printf("%s", query)
 
     r, err := http.Get(query)
@@ -60,12 +63,18 @@ func Catalog(job Job, conf Config) {
     body, err := ioutil.ReadAll(r.Body)
     failOnError(err, "Failed to retrieve OMDB details")
 
-    job.metadata = fmt.Sprintf("%s", body)
+    job.Metadata = fmt.Sprintf("%s", body)
 
     err = updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/cataloguingComplete"}, ""), job)
     failOnError(err, "Failed to update cataloguingComplete")
  } else {
-   err := updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/couldNotCatalogue"}, ""), job)
-   failOnError(err, "Failed to update couldNotCatalogue")
+   job.Type = "movie"
+   job.Show = filename
+   err := updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/cataloguingComplete"}, ""), job)
+   failOnError(err, "Failed to update cataloguingComplete")
  }
+
+  //   err := updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/couldNotCatalogue"}, ""), job)
+  //  failOnError(err, "Failed to update couldNotCatalogue")
+
 }

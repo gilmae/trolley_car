@@ -83,14 +83,19 @@ func main() {
                   failOnError(err, "Failed to unmarshal JSON body")
 
                   job:= job_as_interface.(map[string]interface{})
-                  log.Printf("Converting %s", job["path"])
+                  log.Printf("Shelving %s", job["path"])
 
                   // TODO Configurable Handbrake settings
                   path := job["path"].(string)
 
-                  cmd := "/usr/bin/osascript"
-                  args := []string{"-e", "tell application \"iTunes\"", "-e", "launch", "-e", fmt.Sprintf("set new_file to add POSIX file \"%s\" to playlist \"Library\"", path), "-e", "set video kind of new_file to TV show"}
+                  if _, ok := job["type"]; !ok {
+                    job["type"] = "movie"
+                  }
 
+                  cmd := "/usr/bin/osascript"
+                  args := []string{"-e", "tell application \"iTunes\"", "-e", "launch", "-e", fmt.Sprintf("set new_file to add POSIX file \"%s\" to playlist \"Library\"", path), "-e", fmt.Sprintf("set video kind of new_file to %s", job["type"])}
+
+                  if (job["type"] == "TV show") {
                   if val, ok := job["season"]; ok {
                     args = append(args, "-e")
                     args = append(args, fmt.Sprintf("set season number of new_file to %s", val))
@@ -125,6 +130,7 @@ func main() {
                       }
                     }
                 }
+              }
 
                   args = append(args, "-e")
                   args = append(args, "end tell")

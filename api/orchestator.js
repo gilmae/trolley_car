@@ -32,7 +32,7 @@ var sqlite3 = require('sqlite3').verbose();
 var db = new sqlite3.Database('trolley.db');
 
 db.serialize(function(){
-  db.run("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, job_id VARCHAR(50), path VARCHAR(256), created_at DATETIME, updated_at DATETIME, status varchar(32), metadata text, title varchar(255), show varchar(100), episode varchar(2), season varchar(2));")
+  db.run("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, job_id VARCHAR(50), path VARCHAR(256), created_at DATETIME, updated_at DATETIME, status varchar(32), metadata text, title varchar(255), show varchar(100), episode varchar(2), season varchar(2), type varchar(50));")
 });
 
 console.log("API Starting");
@@ -66,7 +66,7 @@ app.post("/cataloguingComplete", function(req,res){
   job.updated_at = new Date;
 
   db.serialize(function(){
-    db.run("UPDATE jobs set updated_at = ?, status='catalogued', path=?, episode=?, season=?, title=?, show=?, metadata=? where job_id=?", [job.updated_at, job.path, job.episode, job.season, job.title, job.show, job.metadata, job.job_id])
+    db.run("UPDATE jobs set updated_at = ?, status='catalogued', path=?, episode=?, season=?, title=?, show=?, metadata=?, type=? where job_id=?", [job.updated_at, job.path, job.episode, job.season, job.title, job.show, job.metadata, job.type, job.job_id])
   });
 
   if (job.path.toString().endsWith(".mp4")) {
