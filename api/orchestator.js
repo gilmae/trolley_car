@@ -19,6 +19,11 @@ var trolley_exchange;
 rabbitConn.on('ready', function () {
    console.log("MQ is connected");
    trolley_exchange = rabbitConn.exchange('trolley', {'type': 'topic', 'durable': true});
+   // These commands create the queues and bind them to the exchange with those routing keys.
+   // But then trigger the 'ready' event again? Because I see it keep logging 'MQ is connected'. Why?
+   //rabbitConn.queue('transcodes').bind('trolley', 'jobs::transcode');
+   //rabbitConn.queue('shelving').bind('trolley', 'jobs::shelve');
+   //rabbitConn.queue('cataloguing').bind('trolley', 'jobs::catalogue');
 });
 
 
@@ -51,6 +56,7 @@ app.post("/registerJob",function(req,res){
   res.end(JSON.stringify(response));
 });
 
+console.log("Set up /cataloguingComplete");
 app.post("/cataloguingComplete", function(req,res){
   console.log("Received message to /cataloguingComplete");
   console.log(req.body);
@@ -73,6 +79,7 @@ app.post("/cataloguingComplete", function(req,res){
   res.end(JSON.stringify(response));
 });
 
+console.log("Set up /couldNotCatalogue");
 app.post("/couldNotCatalogue", function(req,res){
   console.log("Received message to /couldNotCatalogue");
   console.log(req.body);
@@ -90,6 +97,7 @@ app.post("/couldNotCatalogue", function(req,res){
   res.end(JSON.stringify(response));
 });
 
+console.log("Set up /transcodingComplete");
 app.post("/transcodingComplete", function(req,res){
   console.log("Received message to /transcodingComplete");
   console.log(req.body);
@@ -107,6 +115,7 @@ app.post("/transcodingComplete", function(req,res){
   res.end(JSON.stringify(response));
 });
 
+console.log("Set up /shelvingComplete");
 app.post("/shelvingComplete", function(req,res){
   console.log("Received message to /shelvingComplete");
   console.log(req.body);
