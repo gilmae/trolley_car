@@ -37,7 +37,7 @@ func ParseMessageAsJob(msg []byte) Job {
   return job
 }
 
-func Catalog(job *Job) error {
+func Catalog(job Job) (Job, error) {
   log.Printf("Cataloguing %s", job.Path)
 
   path := job.Path
@@ -59,12 +59,12 @@ func Catalog(job *Job) error {
     r, err := http.Get(query)
     defer r.Body.Close()
     if (err != nil) {
-      return fmt.Errorf("Calling Web Service: %s", err)
+      return job, fmt.Errorf("Calling Web Service: %s", err)
     }
 
     body, err := ioutil.ReadAll(r.Body)
     if (err != nil) {
-      return fmt.Errorf("reading response: %s", err)
+      return job, fmt.Errorf("reading response: %s", err)
     }
 
     job.Metadata = fmt.Sprintf("%s", body)
@@ -75,5 +75,5 @@ func Catalog(job *Job) error {
 
   //   err := updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/couldNotCatalogue"}, ""), job)
   //  failOnError(err, "Failed to update couldNotCatalogue")
-  return nil
+  return job, nil
 }
