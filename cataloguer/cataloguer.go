@@ -10,9 +10,24 @@ import (
         "path/filepath"
         "regexp"
         "io/ioutil"
-
+  "os/user"
+    "github.com/BurntSushi/toml"
 )
 
+type Config struct {
+  AMQPConnectionString string
+  Queue string
+  OrchestratorURI string
+}
+
+func GetConfig() (Config, error) {
+  usr, _ := user.Current()
+  dir := usr.HomeDir
+  var conf Config
+  _, err := toml.DecodeFile(strings.Join([]string{dir, ".trolley", "cataloguer.toml"},"/"), &conf)
+
+  return conf,err
+}
 
 func failOnError(err error, msg string) {
         if err != nil {
