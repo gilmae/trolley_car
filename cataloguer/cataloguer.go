@@ -6,9 +6,13 @@ import (
         "log"
         "time"
         "strings"
+        "net/http"
+        "path/filepath"
+        "regexp"
+        "io/ioutil"
+
 )
 
-type MessageProcessor func(Job)
 
 func failOnError(err error, msg string) {
         if err != nil {
@@ -16,6 +20,8 @@ func failOnError(err error, msg string) {
                 panic(fmt.Sprintf("%s: %s", msg, err))
         }
 }
+
+type MessageProcessor func(Job)
 
 type Consumer struct {
 	conn    *amqp.Connection
@@ -94,7 +100,7 @@ func main() {
   go func(notifyChan <-chan Job ) {
     job := <-notifyChan
     err = updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/cataloguingComplete"}, ""), job)
-    failOnError(err, "Failed to update cataloguingComplete")
+    failOnError(err, "Failed to update orchestrator")
   }(notifyProcessingCompleteChannel)
 
   consumer, err := startConsumer(conf.AMQPConnectionString, conf.Queue, Catalog, notifyProcessingCompleteChannel)
@@ -109,4 +115,42 @@ func main() {
    log.Printf(" [*] Waiting for messages. To exit press CTRL+C\n")
 
    <-forever
+}
+
+func Catalog(job Job) (Job, error) {
+  log.Printf("Cataloguing %s", job.Path)
+
+  path := job.Path
+  filename := filepath.Base(path)
+
+  re := regexp.MustCompile(`([\w\d\s\.]+)[\-_\.\s]+[Ss]?(\d{1,2})[eEx](\d{2}).*\.(\w{3})`)
+
+  if (re.MatchString(filename)) {
+    submatch := re.FindStringSubmatch(filename)
+    job.Show = strings.Trim(submatch[1], " -._")
+    job.Show = strings.Replace(job.Show, ".", " ", -1)
+    job.Season = submatch[2]
+    job.Episode = submatch[3]
+    job.Type = "TV show"
+
+    query := fmt.Sprintf("http://www.omdbapi.com/?t=%s&Season=%s&Episode=%s", strings.Replace(job.Show, " ", "%20", -1), job.Season, job.Episode)
+    fmt.Printf("%s", query)
+
+    r, err := http.Get(query)
+    defer r.Body.Close()
+    if (err != nil) {
+      return job, fmt.Errorf("Calling Web Service: %s", err)
+    }
+
+    body, err := ioutil.ReadAll(r.Body)
+    if (err != nil) {
+      return job, fmt.Errorf("reading response: %s", err)
+    }
+
+    job.Metadata = fmt.Sprintf("%s", body)
+ } else {
+   job.Type = "movie"
+   job.Show = filename
+ }
+ return job, nil
 }
