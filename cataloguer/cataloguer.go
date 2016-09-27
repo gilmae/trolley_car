@@ -102,7 +102,7 @@ func startConsumer(host string, queueName string, messageProcessor func(Job) (Jo
      fmt.Printf("Reconnecting in 10 seconds\n")
      t := time.Duration(10)
      time.Sleep(t * time.Second)
-     c, err = startConsumer(host,queueName, messageProcessor, notifyCatalouged, conf)
+     c, err = startConsumer(host,queueName, messageProcessor, conf)
    }()
   return c, err
 }

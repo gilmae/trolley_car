@@ -2,7 +2,6 @@ package main
 
 import (
   "encoding/json"
-  "log"
   "time"
   "net/http"
   "bytes"
