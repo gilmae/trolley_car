@@ -14,9 +14,10 @@ import (
     "github.com/BurntSushi/toml"
 )
 
+const queueName string = "cataloguing"
+
 type Config struct {
   AMQPConnectionString string
-  Queue string
   OrchestratorURI string
 }
 
@@ -24,15 +25,15 @@ func GetConfig() (Config, error) {
   usr, _ := user.Current()
   dir := usr.HomeDir
   var conf Config
-  _, err := toml.DecodeFile(strings.Join([]string{dir, ".trolley", "cataloguer.toml"},"/"), &conf)
+  _, err := toml.DecodeFile(strings.Join([]string{dir, ".trolley", "config.toml"},"/"), &conf)
 
   return conf,err
 }
 
 func failOnError(err error, msg string) {
         if err != nil {
-                log.Fatalf("%s: %s", msg, err)
-                panic(fmt.Sprintf("%s: %s", msg, err))
+                log.Fatalf("%s: %s\n", msg, err)
+                panic(fmt.Sprintf("%s: %s\n", msg, err))
         }
 }
 
@@ -45,7 +46,7 @@ type Consumer struct {
 	done    chan error
 }
 
-func startConsumer(host string, queueName string, messageProcessor func(Job) (Job, error), notifyCatalouged chan Job) (*Consumer, error) {
+func startConsumer(host string, queueName string, messageProcessor func(Job) (Job, error), conf Config) (*Consumer, error) {
   fmt.Printf("Connecting to Queue {%s} on %s\n", queueName, host)
   c := &Consumer{
     conn:    nil,
@@ -78,22 +79,22 @@ func startConsumer(host string, queueName string, messageProcessor func(Job) (Jo
     return nil, fmt.Errorf("Consuming Messages: %s", err)
   }
 
-  go func(msgs<-chan amqp.Delivery, done chan error, notifyCatalouged chan Job){
+  go func(msgs<-chan amqp.Delivery, done chan error){
     for d := range msgs {
       job := ParseMessageAsJob(d.Body)
 
       cataloguedJob, err := messageProcessor(job)
       failOnError(err, "Failed while cataloging")
 
-      d.Ack(false)
+      updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/cataloguingComplete"}, ""), cataloguedJob)
 
-      notifyCatalouged <- cataloguedJob
+      d.Ack(false)
 
       t := time.Duration(1)
       time.Sleep(t * time.Second)
-      log.Printf("Done")
+      log.Printf("Done\n")
     }
-  }(msgs, c.done, notifyCatalouged)
+  }(msgs, c.done)
 
 
   go func() {
@@ -101,7 +102,7 @@ func startConsumer(host string, queueName string, messageProcessor func(Job) (Jo
      fmt.Printf("Reconnecting in 10 seconds\n")
      t := time.Duration(10)
      time.Sleep(t * time.Second)
-     c, err = startConsumer(host,queueName, messageProcessor, notifyCatalouged)
+     c, err = startConsumer(host,queueName, messageProcessor, notifyCatalouged, conf)
    }()
   return c, err
 }
@@ -111,14 +112,14 @@ func main() {
   conf, err := GetConfig()
   failOnError(err, "Failed to read in config file")
 
-  notifyProcessingCompleteChannel := make(chan Job)
-  go func(notifyChan <-chan Job ) {
-    job := <-notifyChan
+  /*notifyProcessingCompleteChannel := make(chan Job)
+  go func(job <-chan Job ) {
+    log.Printf("Notify chan")
     err = updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/cataloguingComplete"}, ""), job)
     failOnError(err, "Failed to update orchestrator")
-  }(notifyProcessingCompleteChannel)
+  }(notifyProcessingCompleteChannel)*/
 
-  consumer, err := startConsumer(conf.AMQPConnectionString, conf.Queue, Catalog, notifyProcessingCompleteChannel)
+  consumer, err := startConsumer(conf.AMQPConnectionString, queueName, Catalog, conf)
   defer consumer.conn.Close()
   defer consumer.channel.Close()
 
@@ -149,7 +150,7 @@ func Catalog(job Job) (Job, error) {
     job.Type = "TV show"
 
     query := fmt.Sprintf("http://www.omdbapi.com/?t=%s&Season=%s&Episode=%s", strings.Replace(job.Show, " ", "%20", -1), job.Season, job.Episode)
-    fmt.Printf("%s", query)
+    log.Printf("Retrieving  %s\n", query)
 
     r, err := http.Get(query)
     defer r.Body.Close()
@@ -161,6 +162,7 @@ func Catalog(job Job) (Job, error) {
     if (err != nil) {
       return job, fmt.Errorf("reading response: %s", err)
     }
+
 
     job.Metadata = fmt.Sprintf("%s", body)
  } else {

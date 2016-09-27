@@ -24,7 +24,6 @@ type Job struct {
 }
 
 func ParseMessageAsJob(msg []byte) Job {
-  log.Printf("Received a message: %s", msg)
   job_as_bytes := []byte(msg)
   var job Job
   err := json.Unmarshal(job_as_bytes, &job)
@@ -33,7 +32,7 @@ func ParseMessageAsJob(msg []byte) Job {
   return job
 }
 
-func updateOrchestrator(url string, job Job) error {
+func updateOrchestrator(url string, job Job) error {  log.Printf("updating orchestrator: %s", url)
   j, err := json.Marshal(job)
   failOnError(err, "Failed to marshal JSON body")
 
@@ -42,9 +41,7 @@ func updateOrchestrator(url string, job Job) error {
   req.Header.Set("Content-Type", "application/json")
 
   client := &http.Client{}
-  resp, err := client.Do(req)
-
-  defer resp.Body.Close()
+  _, err = client.Do(req)
 
   return err
 }

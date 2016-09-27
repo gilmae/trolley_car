@@ -12,18 +12,18 @@ import (
         "github.com/BurntSushi/toml"
 )
 
+const queueName string = "shelving"
+
 type Config struct {
   AMQPConnectionString string
-  Queue string
   OrchestratorURI string
-  MediaLibrary string
 }
 
 func GetConfig() (Config, error) {
   usr, _ := user.Current()
   dir := usr.HomeDir
   var conf Config
-  _, err := toml.DecodeFile(strings.Join([]string{dir, ".trolley", "shelver.toml"},"/"), &conf)
+  _, err := toml.DecodeFile(strings.Join([]string{dir, ".trolley", "config.toml"},"/"), &conf)
 
   return conf,err
 }
@@ -44,7 +44,7 @@ type Consumer struct {
 	done    chan error
 }
 
-func startConsumer(host string, queueName string, messageProcessor func(Job) (Job, error), notifyDone chan Job) (*Consumer, error) {
+func startConsumer(host string, queueName string, messageProcessor func(Job) (Job, error), conf Config) (*Consumer, error) {
   fmt.Printf("Connecting to Queue {%s} on %s\n", queueName, host)
   c := &Consumer{
     conn:    nil,
@@ -77,22 +77,23 @@ func startConsumer(host string, queueName string, messageProcessor func(Job) (Jo
     return nil, fmt.Errorf("Consuming Messages: %s", err)
   }
 
-  go func(msgs<-chan amqp.Delivery, done chan error, notifyDone chan Job){
+  go func(msgs<-chan amqp.Delivery, done chan error){
     for d := range msgs {
       job := ParseMessageAsJob(d.Body)
 
       cataloguedJob, err := messageProcessor(job)
       failOnError(err, "Failed while cataloging")
 
-      d.Ack(false)
+      err = updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/shelvingComplete"}, ""), cataloguedJob)
+      failOnError(err, "Failed to update orchestrator")
 
-      notifyDone <- cataloguedJob
+      d.Ack(false)
 
       t := time.Duration(1)
       time.Sleep(t * time.Second)
       log.Printf("Done")
     }
-  }(msgs, c.done, notifyDone)
+  }(msgs, c.done)
 
 
   go func() {
@@ -100,7 +101,7 @@ func startConsumer(host string, queueName string, messageProcessor func(Job) (Jo
      fmt.Printf("Reconnecting in 10 seconds\n")
      t := time.Duration(10)
      time.Sleep(t * time.Second)
-     c, err = startConsumer(host,queueName, messageProcessor, notifyDone)
+     c, err = startConsumer(host,queueName, messageProcessor, conf)
    }()
   return c, err
 }
@@ -109,14 +110,8 @@ func main() {
   conf, err := GetConfig()
   failOnError(err, "Failed to read in config file")
 
-  notifyProcessingCompleteChannel := make(chan Job)
-  go func(notifyChan <-chan Job ) {
-    job := <-notifyChan
-    err = updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/shelvingComplete"}, ""), job)
-    failOnError(err, "Failed to update orchestrator")
-  }(notifyProcessingCompleteChannel)
 
-  consumer, err := startConsumer(conf.AMQPConnectionString, conf.Queue, Shelve, notifyProcessingCompleteChannel)
+  consumer, err := startConsumer(conf.AMQPConnectionString, queueName, Shelve, conf)
   defer consumer.conn.Close()
   defer consumer.channel.Close()
 
