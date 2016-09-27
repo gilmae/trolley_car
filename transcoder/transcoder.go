@@ -15,9 +15,10 @@ import (
         "github.com/BurntSushi/toml"
 )
 
+const queueName string = "transcodes"
+
 type Config struct {
   AMQPConnectionString string
-  Queue string
   OrchestratorURI string
 }
 
@@ -45,7 +46,7 @@ func main() {
         defer ch.Close()
 
         q, err := ch.QueueDeclare(
-                conf.Queue, // name
+                queueName, // name
                 true,         // durable
                 false,        // delete when unused
                 false,        // exclusive
