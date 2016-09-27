@@ -5,13 +5,10 @@ import (
         "github.com/streadway/amqp"
         "log"
         "time"
-        "encoding/json"
         "os"
         "os/exec"
         "os/user"
         "strings"
-        "net/http"
-        "bytes"
         "github.com/BurntSushi/toml"
 )
 
@@ -22,6 +19,15 @@ type Config struct {
   OrchestratorURI string
 }
 
+func GetConfig() (Config, error) {
+  usr, _ := user.Current()
+  dir := usr.HomeDir
+  var conf Config
+  _, err := toml.DecodeFile(strings.Join([]string{dir, ".trolley", "config.toml"},"/"), &conf)
+
+  return conf,err
+}
+
 func failOnError(err error, msg string) {
         if err != nil {
                 log.Fatalf("%s: %s", msg, err)
@@ -29,107 +35,123 @@ func failOnError(err error, msg string) {
         }
 }
 
+type MessageProcessor func(Job)
+
+type Consumer struct {
+	conn    *amqp.Connection
+	channel *amqp.Channel
+	tag     string
+	done    chan error
+}
+
+func startConsumer(host string, queueName string, messageProcessor func(Job) (Job, error), conf Config) (*Consumer, error) {
+  fmt.Printf("Connecting to Queue {%s} on %s\n", queueName, host)
+  c := &Consumer{
+    conn:    nil,
+    channel: nil,
+    done:    make(chan error),
+  }
+
+  var err error
+
+  c.conn, err = amqp.Dial(host)
+  if (err != nil) {
+    return nil, fmt.Errorf("Connecting to queue: %s", err)
+  }
+
+  c.channel, err = c.conn.Channel()
+  if (err != nil) {
+    return nil, fmt.Errorf("Opening Channel: %s", err)
+  }
+
+  msgs, err := c.channel.Consume(
+           queueName, // queue
+           "",     // consumer
+           false,  // auto-ack
+           false,  // exclusive
+           false,  // no-local
+           false,  // no-wait
+           nil,    // args
+  )
+  if (err != nil) {
+    return nil, fmt.Errorf("Consuming Messages: %s", err)
+  }
+
+  go func(msgs<-chan amqp.Delivery, done chan error){
+    for d := range msgs {
+      job := ParseMessageAsJob(d.Body)
+
+      cataloguedJob, err := messageProcessor(job)
+      failOnError(err, "Failed while transcoding")
+
+      err = updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/transcodingComplete"}, ""), cataloguedJob)
+      failOnError(err, "Failed to update orchestrator")
+
+      d.Ack(false)
+
+      t := time.Duration(1)
+      time.Sleep(t * time.Second)
+      log.Printf("Done")
+    }
+  }(msgs, c.done)
+
+
+  go func() {
+     fmt.Printf("closing: %s\n", <-c.conn.NotifyClose(make(chan *amqp.Error)))
+     fmt.Printf("Reconnecting in 10 seconds\n")
+     t := time.Duration(10)
+     time.Sleep(t * time.Second)
+     c, err = startConsumer(host,queueName, messageProcessor, conf)
+   }()
+  return c, err
+}
+
 func main() {
-       usr, _ := user.Current()
-       dir := usr.HomeDir
-       var conf Config
-        _, err := toml.DecodeFile(strings.Join([]string{dir, ".trolley", "config.toml"},"/"), &conf)
-        failOnError(err, "Failed to read in config file")
+  conf, err := GetConfig()
+  failOnError(err, "Failed to read in config file")
 
-        // Shamless copy paste of the worker.go code from RabbitMQ's tutorial on Queues
-        conn, err := amqp.Dial(conf.AMQPConnectionString)
-        failOnError(err, "Failed to connect to RabbitMQ")
-        defer conn.Close()
+  consumer, err := startConsumer(conf.AMQPConnectionString, queueName, Transcode, conf)
+  defer consumer.conn.Close()
+  defer consumer.channel.Close()
 
-        ch, err := conn.Channel()
-        failOnError(err, "Failed to open a channel")
-        defer ch.Close()
+   failOnError(err, "Failed to register a consumer")
 
-        q, err := ch.QueueDeclare(
-                queueName, // name
-                true,         // durable
-                false,        // delete when unused
-                false,        // exclusive
-                false,        // no-wait
-                nil,          // arguments
-        )
-        failOnError(err, "Failed to declare a queue")
+   forever := make(chan bool)
 
-        err = ch.Qos(
-                1,     // prefetch count
-                0,     // prefetch size
-                false, // global
-        )
-        failOnError(err, "Failed to set QoS")
+   log.Printf(" [*] Waiting for messages. To exit press CTRL+C\n")
 
-        msgs, err := ch.Consume(
-                q.Name, // queue
-                "",     // consumer
-                false,  // auto-ack
-                false,  // exclusive
-                false,  // no-local
-                false,  // no-wait
-                nil,    // args
-        )
-        failOnError(err, "Failed to register a consumer")
+   <-forever
 
-        forever := make(chan bool)
 
-        go func() {
-                for d := range msgs {
-                        log.Printf("Received a message: %s", d.Body)
-                        job_as_bytes := []byte(d.Body)
-                        var job_as_interface interface{}
-                        err := json.Unmarshal(job_as_bytes, &job_as_interface)
-                        failOnError(err, "Failed to unmarshal JSON body")
+  log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
+  <-forever
+}
 
-                        job:= job_as_interface.(map[string]interface{})
-                        log.Printf("Converting %s", job["path"])
-                        // TODO Configurable Handbrake settings
-                        path := job["path"].(string)
-                        new_path := strings.Join([]string{path, ".mp4"}, "")
-                        cmd:= "ffmpeg"
-                        args := []string{"-i", path, "-vcodec", "libx264", "-r", "24"}
+func Transcode(job Job) (Job, error) {
+  log.Printf("Converting %s", job.Path)
 
-                        if job["show"].(string) != "" {
-                          args = append(args, "-metadata")
-                          args = append(args, fmt.Sprintf(`show="%s"`, job["show"]))
-                        }
+  // TODO Configurable Handbrake settings
+  path := job.Path
+  new_path := strings.Join([]string{path, ".mp4"}, "")
+  cmd:= "ffmpeg"
+  args := []string{"-i", path, "-vcodec", "libx264", "-r", "24"}
 
-                        args = append(args, new_path)
-                        log.Printf("Calling %s %s\n", cmd, args)
+  if job.Show != "" {
+    args = append(args, "-metadata")
+    args = append(args, fmt.Sprintf(`show="%s"`, job.Show))
+  }
 
-                        if err := exec.Command(cmd, args...).Run(); err != nil {
-		                        fmt.Fprintln(os.Stderr, err)
-		                        os.Exit(1)
-	                      }
+  args = append(args, new_path)
+  log.Printf("Calling %s %s\n", cmd, args)
 
-                        log.Printf("Successfully converted %s", path)
+  if err := exec.Command(cmd, args...).Run(); err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
 
-                        job["path"] = new_path
-                        j, err := json.Marshal(job)
-                        failOnError(err, "Failed to marshal JSON body")
+  log.Printf("Successfully converted %s", path)
 
-                        // Tell the Orchestrator the transcode is complete
-                        url := strings.Join([]string{conf.OrchestratorURI, "/transcodingComplete"}, "")
+  job.Path = new_path
 
-                        var jsonStr = []byte(j)
-                        req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
-                        req.Header.Set("Content-Type", "application/json")
-
-                        client := &http.Client{}
-                        resp, err := client.Do(req)
-                        failOnError(err, "Failed to update job as transcodeComplete in Orchestrator")
-
-                        defer resp.Body.Close()
-
-                        d.Ack(false)
-                        t := time.Duration(3)
-                        time.Sleep(t * time.Second)
-                        log.Printf("Done")
-                }
-        }()
-
-        log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
-        <-forever
+  return job, nil
 }
