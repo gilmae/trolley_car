@@ -2,7 +2,61 @@ var express    = require("express");
 //var mysql      = require('mysql');
 var bodyParser = require('body-parser');
 var uuid       = require('node-uuid');
-var amqp       = require('amqp');
+
+var AWS = require('aws-sdk');
+var AWS = require('aws-sdk/global');
+
+const catalogQueueName = 'cataloguing';
+const transcodeQueueName = 'transcodes';
+const shelvingQueueName = 'shelving';
+
+var sqs = new AWS.SQS({apiVersion: '2012-11-05', endpoint: 'http://localhost:9324', region:"ap-southeast-2", accessKeyId:"invalid", secretAccessKey:'invalid'});
+sqs.createQueue({QueueName: catalogQueueName}, function(err, data){if (err){console.log(err)}});
+sqs.createQueue({QueueName: transcodeQueueName}, function(err, data){if (err){console.log(err)}});
+sqs.createQueue({QueueName: shelvingQueueName}, function(err, data){if (err){console.log(err)}});
+
+function getQueueUrl(queueName){
+  return new Promise((resolve, reject) => {
+    sqs.getQueueUrl({QueueName: queueName}, function(err, data) {
+      if (err)
+      {
+        reject(err);
+      }
+      else
+      {
+        resolve(data);
+      }
+    })
+  });
+}
+
+function sendToQueue(queueName, job)
+{
+  return new Promise((resolve, reject) => {
+    getQueueUrl(catalogQueueName).then((data) => {
+      let queueName = data.QueueUrl;
+      sqs.sendMessage(
+        {
+          QueueUrl: queueName, 
+          MessageBody: JSON.stringify(job)
+        }, 
+        function(err,d)
+        {
+          if (err) {
+            reject(err);
+          }
+          else
+          {
+            resolve(d);
+          }
+        }
+      );
+    })
+    .catch((err)=>{
+     resolve(err);
+    });
+  });
+}
 
 var app = express();
 app.use(bodyParser.json());
@@ -13,33 +67,10 @@ if (typeof String.prototype.endsWith !== 'function') {
     };
 }
 
-var rabbitConn = amqp.createConnection();
-var trolley_exchange;
-
-rabbitConn.on('ready', function () {
-   console.log("MQ is connected");
-   trolley_exchange = rabbitConn.exchange('trolley', {'type': 'topic', 'durable': true});
-   trolley_completion_exchange = rabbitConn.exchange('trolley_completion', {'type': 'fanout', 'durable': true});
-
-   // These commands create the queues and bind them to the exchange with those routing keys.
-   // But then trigger the 'ready' event again? Because I see it keep logging 'MQ is connected'. Why?
-   //rabbitConn.queue('transcodes').bind('trolley', 'jobs::transcode');
-   //rabbitConn.queue('shelving').bind('trolley', 'jobs::shelve');
-   //rabbitConn.queue('cataloguing').bind('trolley', 'jobs::catalogue');
-});
-
-
-//var sqlite3 = require('sqlite3').verbose();
-//var db = new sqlite3.Database('trolley.db');
-
-//db.serialize(function(){
-//  db.run("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, job_id VARCHAR(50), path VARCHAR(256), created_at DATETIME, updated_at DATETIME, status varchar(32), metadata text, title varchar(255), show varchar(100), episode varchar(2), season varchar(2), type varchar(20));")
-//});
-
 console.log("API Starting");
 console.log("Set up /registerJob");
 
-app.post("/registerJob",function(req,res){
+app.post("/registerJob", function(req,res){
   console.log("Received message to /registerJob");
   console.log(req.body);
 
@@ -48,14 +79,16 @@ app.post("/registerJob",function(req,res){
   job.created_at = new Date;
   job.updated_at = job.created_at;
 
-  //db.serialize(function(){
-  //  db.run("INSERT INTO jobs (job_id, created_at, updated_at, path, status) VALUES (?,?,?,?, 'new')", [job.job_id, job.created_at, job.updated_at, job.path]);
-  //})
-
-  trolley_exchange.publish("jobs::catalogue", job);
-
-  var response = job;
-  res.end(JSON.stringify(response));
+  sendToQueue(catalogQueueName, job).then((data)=> 
+  {
+    var response = job;
+    res.end(JSON.stringify(response));
+  })
+  .catch((err) => 
+  {
+    console.log(err);
+    res.end();
+  });
 });
 
 console.log("Set up /cataloguingComplete");
@@ -66,38 +99,41 @@ app.post("/cataloguingComplete", function(req,res){
   var job = req.body;
   job.updated_at = new Date;
 
-  //db.serialize(function(){
-  //  db.run("UPDATE jobs set updated_at = ?, status='catalogued', path=?, episode=?, season=?, title=?, show=?, metadata=?, type=? where job_id=?", [job.updated_at, job.path, job.episode, job.season, job.title, job.show, job.metadata, job.type, job.job_id])
-  //});
+  let queueName = transcodeQueueName;
 
   if (job.path.toString().endsWith(".mp4")) {
-     trolley_exchange.publish("jobs::shelve", job);
-  }
-  else {
-    trolley_exchange.publish("jobs::transcode", job);
+    queueName = shelvingQueueName;
   }
 
-  var response = job;
-  res.end(JSON.stringify(response));
+  sendToQueue(queueName, job).then((data)=> 
+  {
+    var response = job;
+    res.end(JSON.stringify(response));
+  })
+  .catch((err) => 
+  {
+    console.log(err);
+    res.end();
+  });
 });
 
-console.log("Set up /couldNotCatalogue");
-app.post("/couldNotCatalogue", function(req,res){
-  console.log("Received message to /couldNotCatalogue");
-  console.log(req.body);
+// console.log("Set up /couldNotCatalogue");
+// app.post("/couldNotCatalogue", function(req,res){
+//   console.log("Received message to /couldNotCatalogue");
+//   console.log(req.body);
 
-  var job = req.body;
-  job.updated_at = new Date;
+//   var job = req.body;
+//   job.updated_at = new Date;
 
-  //db.serialize(function(){
-  //  db.run("UPDATE jobs set updated_at = ?, status='couldNotCatalogue', path=?, episode=?, season=?, title=?, show=?, metadata=?, type=? where job_id=?", [job.updated_at, job.path, job.episode, job.season, job.title, job.show, job.metadata, job.type, job.job_id])
-  //});
+//   //db.serialize(function(){
+//   //  db.run("UPDATE jobs set updated_at = ?, status='couldNotCatalogue', path=?, episode=?, season=?, title=?, show=?, metadata=?, type=? where job_id=?", [job.updated_at, job.path, job.episode, job.season, job.title, job.show, job.metadata, job.type, job.job_id])
+//   //});
 
-  trolley_exchange.publish("jobs::uncatalouged", job);
+//   trolley_exchange.publish("jobs::uncatalouged", job);
 
-  var response = job;
-  res.end(JSON.stringify(response));
-});
+//   var response = job;
+//   res.end(JSON.stringify(response));
+// });
 
 console.log("Set up /transcodingComplete");
 app.post("/transcodingComplete", function(req,res){
@@ -107,14 +143,16 @@ app.post("/transcodingComplete", function(req,res){
   var job = req.body;
   job.updated_at = new Date;
 
-  //db.serialize(function(){
-  //  db.run("UPDATE jobs set updated_at = ?, status='transcoded', path=? where job_id=?", [job.updated_at, job.path, job.job_id])
-  //});
-
-  trolley_exchange.publish("jobs::shelve", job);
-
-  var response = job;
-  res.end(JSON.stringify(response));
+  sendToQueue(shelvingQueueName, job).then((data)=> 
+  {
+    var response = job;
+    res.end(JSON.stringify(response));
+  })
+  .catch((err) => 
+  {
+    console.log(err);
+    res.end();
+  });
 });
 
 console.log("Set up /shelvingComplete");
@@ -125,17 +163,20 @@ app.post("/shelvingComplete", function(req,res){
   var job = req.body;
   job.updated_at = new Date;
 
-  //db.serialize(function(){
-  //  db.run("UPDATE jobs set updated_at = ?, status='shelved', path=? where job_id=?", [job.updated_at, job.path, job.job_id])
-  //});
-
-  trolley_completion_exchange.publish("", job);
+  //sendToQueue(queueName, job).then((data)=> 
+  // {
+  //   var response = job;
+  //   res.end(JSON.stringify(response));
+  // })
+  // .catch((err) => 
+  // {
+  //   console.log(err);
+  //   res.end();
+  // });
 
   var response = job;
   res.end(JSON.stringify(response));
 });
 
-
-
-console.log("Listening on port 3001")
-app.listen(3001);
+ console.log("Listening on port 3001")
+ app.listen(3001);
