@@ -33,7 +33,7 @@ function getQueueUrl(queueName){
 function sendToQueue(queueName, job)
 {
   return new Promise((resolve, reject) => {
-    getQueueUrl(catalogQueueName).then((data) => {
+    getQueueUrl(queueName).then((data) => {
       let queueName = data.QueueUrl;
       sqs.sendMessage(
         {
@@ -99,7 +99,7 @@ app.post("/cataloguingComplete", function(req,res){
   var job = req.body;
   job.updated_at = new Date;
 
-  let queueName = transcodeQueueName;
+  var queueName = transcodeQueueName;
 
   if (job.path.toString().endsWith(".mp4")) {
     queueName = shelvingQueueName;

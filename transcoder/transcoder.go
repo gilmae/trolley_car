@@ -44,13 +44,16 @@ func main() {
     Region: aws.String("invalid"),
   }
   
-  svc, url := worker.NewSQSClient("transcoding", aws_config)
+  svc, url := worker.NewSQSClient("transcodes", aws_config)
 	// set the queue url
 	worker.QueueURL = url
 	// start the worker
 	worker.Start(svc, worker.HandlerFunc(func(msg *sqs.Message) error {
     job := ParseMessageAsJob(aws.StringValue(msg.Body))
-    Transcode(job)
+    completedJob, err := Transcode(job)
+    failOnError(err, "Failed while cataloging")
+    
+    updateOrchestrator(strings.Join([]string{"http://localhost:3001/transcodingComplete"}, ""), completedJob)
     //fmt.Println(aws.StringValue(msg.Body));
     return nil
   }))

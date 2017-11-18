@@ -55,8 +55,11 @@ func main() {
 	// start the worker
 	worker.Start(svc, worker.HandlerFunc(func(msg *sqs.Message) error {
     job := ParseMessageAsJob(aws.StringValue(msg.Body))
-    Catalog(job)
-    //fmt.Println(aws.StringValue(msg.Body));
+    cataloguedJob, err := Catalog(job)
+    failOnError(err, "Failed while cataloging")
+
+    updateOrchestrator(strings.Join([]string{"http://localhost:3001/cataloguingComplete"}, ""), cataloguedJob)
+  //fmt.Println(aws.StringValue(msg.Body));
     return nil
   }))
 }
@@ -77,7 +80,7 @@ func Catalog(job Job) (Job, error) {
     job.Episode = submatch[3]
     job.Type = "TV show"
 
-    query := fmt.Sprintf("http://www.omdbapi.com/?t=%s&Season=%s&Episode=%s", strings.Replace(job.Show, " ", "%20", -1), job.Season, job.Episode)
+    query := fmt.Sprintf("http://www.omdbapi.com/?t=%s&Season=%s&Episode=%s&apikey=b8188029", strings.Replace(job.Show, " ", "%20", -1), job.Season, job.Episode)
     log.Printf("Retrieving  %s\n", query)
 
     r, err := http.Get(query)

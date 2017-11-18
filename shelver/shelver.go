@@ -50,7 +50,12 @@ func main() {
 	// start the worker
 	worker.Start(svc, worker.HandlerFunc(func(msg *sqs.Message) error {
     job := ParseMessageAsJob(aws.StringValue(msg.Body))
-    Shelve(job)
+    completedJob, err := Shelve(job)
+
+    failOnError(err, "Failed while cataloging")
+    
+    updateOrchestrator(strings.Join([]string{"http://localhost:3001/shelvingComplete"}, ""), completedJob)
+
     //fmt.Println(aws.StringValue(msg.Body));
     return nil
   }))
