@@ -1,6 +1,0 @@
-# Transcoder Config
-# Edit and rename to config.toml
-AMQPConnectionString = "amqp://guest:guest@localhost:5672/"
-Queue = "shelving"
-OrchestratorURI = "http://localhost:3001"
-MediaLibrary = "Users/user/media"
