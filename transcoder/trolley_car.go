@@ -23,7 +23,7 @@ type Job struct {
   Type string `json:type`
 }
 
-func ParseMessageAsJob(msg []byte) Job {
+func ParseMessageAsJob(msg string) Job {
   job_as_bytes := []byte(msg)
   var job Job
   err := json.Unmarshal(job_as_bytes, &job)

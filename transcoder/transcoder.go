@@ -2,9 +2,11 @@ package main
 
 import (
         "fmt"
-        "github.com/streadway/amqp"
+        "github.com/aws/aws-sdk-go/aws"
+        "github.com/aws/aws-sdk-go/service/sqs"
+        "github.com/aws/aws-sdk-go/aws/credentials"
+        "github.com/h2ik/go-sqs-poller/worker"
         "log"
-        "time"
         "os"
         "os/exec"
         "os/user"
@@ -35,96 +37,26 @@ func failOnError(err error, msg string) {
         }
 }
 
-type MessageProcessor func(Job)
-
-type Consumer struct {
-	conn    *amqp.Connection
-	channel *amqp.Channel
-	tag     string
-	done    chan error
-}
-
-func startConsumer(host string, queueName string, messageProcessor func(Job) (Job, error), conf Config) (*Consumer, error) {
-  fmt.Printf("Connecting to Queue {%s} on %s\n", queueName, host)
-  c := &Consumer{
-    conn:    nil,
-    channel: nil,
-    done:    make(chan error),
-  }
-
-  var err error
-
-  c.conn, err = amqp.Dial(host)
-  if (err != nil) {
-    return nil, fmt.Errorf("Connecting to queue: %s", err)
-  }
-
-  c.channel, err = c.conn.Channel()
-  if (err != nil) {
-    return nil, fmt.Errorf("Opening Channel: %s", err)
-  }
-
-  msgs, err := c.channel.Consume(
-           queueName, // queue
-           "",     // consumer
-           false,  // auto-ack
-           false,  // exclusive
-           false,  // no-local
-           false,  // no-wait
-           nil,    // args
-  )
-  if (err != nil) {
-    return nil, fmt.Errorf("Consuming Messages: %s", err)
-  }
-
-  go func(msgs<-chan amqp.Delivery, done chan error){
-    for d := range msgs {
-      job := ParseMessageAsJob(d.Body)
-
-      cataloguedJob, err := messageProcessor(job)
-      failOnError(err, "Failed while transcoding")
-
-      err = updateOrchestrator(strings.Join([]string{conf.OrchestratorURI, "/transcodingComplete"}, ""), cataloguedJob)
-      failOnError(err, "Failed to update orchestrator")
-
-      d.Ack(false)
-
-      t := time.Duration(1)
-      time.Sleep(t * time.Second)
-      log.Printf("Done")
-    }
-  }(msgs, c.done)
-
-
-  go func() {
-     fmt.Printf("closing: %s\n", <-c.conn.NotifyClose(make(chan *amqp.Error)))
-     fmt.Printf("Reconnecting in 10 seconds\n")
-     t := time.Duration(10)
-     time.Sleep(t * time.Second)
-     c, err = startConsumer(host,queueName, messageProcessor, conf)
-   }()
-  return c, err
-}
-
 func main() {
-  conf, err := GetConfig()
-  failOnError(err, "Failed to read in config file")
-
-  consumer, err := startConsumer(conf.AMQPConnectionString, queueName, Transcode, conf)
-  defer consumer.conn.Close()
-  defer consumer.channel.Close()
-
-   failOnError(err, "Failed to register a consumer")
-
-   forever := make(chan bool)
-
-   log.Printf(" [*] Waiting for messages. To exit press CTRL+C\n")
-
-   <-forever
-
-
-  log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
-  <-forever
+  aws_config := &aws.Config{
+		Credentials: credentials.NewStaticCredentials("invalid", "invalid", ""),
+    Endpoint:      aws.String("http://localhost:9324"),
+    Region: aws.String("invalid"),
+  }
+  
+  svc, url := worker.NewSQSClient("transcodes", aws_config)
+	// set the queue url
+	worker.QueueURL = url
+	// start the worker
+	worker.Start(svc, worker.HandlerFunc(func(msg *sqs.Message) error {
+    job := ParseMessageAsJob(aws.StringValue(msg.Body))
+    completedJob, err := Transcode(job)
+    failOnError(err, "Failed while cataloging")
+    
+    updateOrchestrator(strings.Join([]string{"http://localhost:3001/transcodingComplete"}, ""), completedJob)
+    //fmt.Println(aws.StringValue(msg.Body));
+    return nil
+  }))
 }
 
 func Transcode(job Job) (Job, error) {
